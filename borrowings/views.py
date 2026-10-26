@@ -1,4 +1,4 @@
-from django.contrib.admin import action
+from rest_framework.decorators import action
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets, request, status
