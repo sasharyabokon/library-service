@@ -42,7 +42,7 @@ class BorrowingSerializer(serializers.ModelSerializer):
 
             payment = Payment.objects.create(
                 borrowing=borrowing,
-                type=Payment.PaymentType.PAYMENT,
+                type=Payment.TypeChoices.PAYMENT,
                 money_to_pay=money_to_pay,
             )
 
@@ -59,7 +59,7 @@ class BorrowingSerializer(serializers.ModelSerializer):
             f"• *Book:* {borrowing.book.title}\n"
             f"• *User:* {borrowing.user.email}\n"
             f"• *Borrow Date:* {borrowing.borrow_date}\n"
-            f"• *Expected Return Date:* {borrowing.expected_return_Date}"
+            f"• *Expected Return Date:* {borrowing.expected_return_date}"
         )
 
         send_telegram_message(message)

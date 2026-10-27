@@ -7,7 +7,6 @@ def create_stripe_session(payment, success_url, cancel_url):
 
     unit_amount = int(payment.money_to_pay * 100)
     session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
         line_items=[
             {
                 "price_data": {
