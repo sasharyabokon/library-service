@@ -4,10 +4,13 @@ from rest_framework import serializers
 from borrowings.models import Borrowing
 from borrowings.telegram import send_telegram_message
 from payment.models import Payment
+from payment.serializers import PaymentSerializer
 from payment.services import create_stripe_session
 
 
 class BorrowingSerializer(serializers.ModelSerializer):
+    payments = PaymentSerializer(many=True, read_only=True, source="payment_set")
+
     class Meta:
         model = Borrowing
         fields = (
@@ -17,8 +20,15 @@ class BorrowingSerializer(serializers.ModelSerializer):
             "borrow_date",
             "expected_return_date",
             "actual_return_date",
+            "payments",
         )
-        read_only_fields = ("id", "user", "borrow_date", "actual_return_date")
+        read_only_fields = (
+            "id",
+            "user",
+            "borrow_date",
+            "actual_return_date",
+            "payments",
+        )
 
     def validate(self, attrs):
         book = attrs.get("book")
@@ -46,8 +56,16 @@ class BorrowingSerializer(serializers.ModelSerializer):
                 money_to_pay=money_to_pay,
             )
 
-        success_url = "http://127.0.0.1:8000/success/?session_id={CHECKOUT_SESSION_ID}"
-        cancel_url = "http://127.0.0.1:8000/cancel/"
+        request = self.context.get("request")
+        if request:
+            base_url = request.build_absolute_uri("/")[:-1]
+        else:
+            base_url = "http://127.0.0.1:8000"
+
+        success_url = (
+            f"{base_url}/api/payment/success/?session_id={{CHECKOUT_SESSION_ID}}"
+        )
+        cancel_url = f"{base_url}/api/payment/cancel/"
 
         try:
             create_stripe_session(payment, success_url, cancel_url)
