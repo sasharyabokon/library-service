@@ -1,3 +1,6 @@
+from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import action
 from django.db import transaction
 from django.utils import timezone
@@ -6,12 +9,21 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from borrowings.models import Borrowing
-from borrowings.serializers import BorrowingSerializer
+from borrowings.serializers import (
+    BorrowingReadSerializer,
+    BorrowingCreateSerializer,
+)
+from payment.models import Payment
+from payment.services import create_stripe_session
 
 
 class BorrowingViewSet(viewsets.ModelViewSet):
-    serializer_class = BorrowingSerializer
     permission_classes = (IsAuthenticated,)
+
+    def get_serializer_class(self):
+        if self.action in ("list", "retrieve"):
+            return BorrowingReadSerializer
+        return BorrowingCreateSerializer
 
     def get_queryset(self):
         user = self.request.user
@@ -36,6 +48,35 @@ class BorrowingViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @extend_schema(
+        summary="Get list of borrowings",
+        description="Retrieve a list of borrowings. Non-admins see only their own borrowings.",
+        parameters=[
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.INT,
+                description="Filter borrowings by user ID (admin only)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="is_active",
+                type=OpenApiTypes.BOOL,
+                description="Filter active borrowings (True = not returned, False = returned)",
+                required=False,
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Return a borrowed book",
+        description="Set actual return date, increase book inventory by 1, and create a FINE payment if overdue.",
+        responses={
+            status.HTTP_200_OK: BorrowingReadSerializer,
+            status.HTTP_400_BAD_REQUEST: OpenApiTypes.OBJECT,
+        },
+    )
     @action(methods=["POST"], detail=True, url_path="return")
     def return_book(self, request, pk=None):
         borrowing = self.get_object()
@@ -45,6 +86,7 @@ class BorrowingViewSet(viewsets.ModelViewSet):
                 {"error": "This book is already returned"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         with transaction.atomic():
             borrowing.actual_return_date = timezone.now().date()
             borrowing.save()
@@ -52,6 +94,28 @@ class BorrowingViewSet(viewsets.ModelViewSet):
             book = borrowing.book
             book.inventory += 1
             book.save()
+
+            if borrowing.actual_return_date > borrowing.expected_return_date:
+                overdue_days = (
+                    borrowing.actual_return_date - borrowing.expected_return_date
+                ).days
+                fine_multiplier = getattr(settings, "FINE_MULTIPLIER", 2)
+                money_to_pay = overdue_days * book.daily_fee * fine_multiplier
+
+                payment = Payment.objects.create(
+                    borrowing=borrowing,
+                    type=Payment.TypeChoices.FINE,
+                    money_to_pay=money_to_pay,
+                )
+
+                base_url = request.build_absolute_uri("/")[:-1]
+                success_url = f"{base_url}/api/payment/success/?session_id={{CHECKOUT_SESSION_ID}}"
+                cancel_url = f"{base_url}/api/payment/cancel/"
+
+                try:
+                    create_stripe_session(payment, success_url, cancel_url)
+                except Exception as e:
+                    print(f"Stripe session creation for fine failed: {e}")
 
             serializer = self.get_serializer(borrowing)
             return Response(serializer.data, status=status.HTTP_200_OK)
