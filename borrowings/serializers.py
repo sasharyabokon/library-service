@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 
+from book.serializers import BookSerializer
 from borrowings.models import Borrowing
 from borrowings.telegram import send_telegram_message
 from payment.models import Payment
@@ -8,31 +9,38 @@ from payment.serializers import PaymentSerializer
 from payment.services import create_stripe_session
 
 
-class BorrowingSerializer(serializers.ModelSerializer):
+class BorrowingReadSerializer(serializers.ModelSerializer):
+    book = BookSerializer(read_only=True)
+    user_email = serializers.ReadOnlyField(source="user.email")
     payments = PaymentSerializer(many=True, read_only=True, source="payment_set")
 
     class Meta:
         model = Borrowing
         fields = (
             "id",
-            "user",
+            "user_email",
             "book",
             "borrow_date",
             "expected_return_date",
             "actual_return_date",
             "payments",
         )
-        read_only_fields = (
+
+
+class BorrowingCreateSerializer(serializers.ModelSerializer):
+    # Тут залишається твоя логіка створення, валідації, списання інвентарю, створення платежу й телеграма
+    class Meta:
+        model = Borrowing
+        fields = (
             "id",
-            "user",
+            "book",
             "borrow_date",
-            "actual_return_date",
-            "payments",
+            "expected_return_date",
         )
+        read_only_fields = ("id", "borrow_date")
 
     def validate(self, attrs):
         book = attrs.get("book")
-
         if book.inventory <= 0:
             raise serializers.ValidationError({"book": "this book is out of inventory"})
         return attrs
@@ -57,11 +65,9 @@ class BorrowingSerializer(serializers.ModelSerializer):
             )
 
         request = self.context.get("request")
-        if request:
-            base_url = request.build_absolute_uri("/")[:-1]
-        else:
-            base_url = "http://127.0.0.1:8000"
-
+        base_url = (
+            request.build_absolute_uri("/")[:-1] if request else "http://127.0.0.1:8000"
+        )
         success_url = (
             f"{base_url}/api/payment/success/?session_id={{CHECKOUT_SESSION_ID}}"
         )
@@ -79,7 +85,6 @@ class BorrowingSerializer(serializers.ModelSerializer):
             f"• *Borrow Date:* {borrowing.borrow_date}\n"
             f"• *Expected Return Date:* {borrowing.expected_return_date}"
         )
-
         send_telegram_message(message)
 
         return borrowing

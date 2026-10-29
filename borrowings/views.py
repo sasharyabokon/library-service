@@ -7,14 +7,21 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from borrowings.models import Borrowing
-from borrowings.serializers import BorrowingSerializer
+from borrowings.serializers import (
+    BorrowingReadSerializer,
+    BorrowingCreateSerializer,
+)
 from payment.models import Payment
 from payment.services import create_stripe_session
 
 
 class BorrowingViewSet(viewsets.ModelViewSet):
-    serializer_class = BorrowingSerializer
     permission_classes = (IsAuthenticated,)
+
+    def get_serializer_class(self):
+        if self.action in ("list", "retrieve"):
+            return BorrowingReadSerializer
+        return BorrowingCreateSerializer
 
     def get_queryset(self):
         user = self.request.user
