@@ -28,7 +28,6 @@ class BorrowingReadSerializer(serializers.ModelSerializer):
 
 
 class BorrowingCreateSerializer(serializers.ModelSerializer):
-    # Тут залишається твоя логіка створення, валідації, списання інвентарю, створення платежу й телеграма
     class Meta:
         model = Borrowing
         fields = (
