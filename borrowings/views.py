@@ -1,4 +1,6 @@
 from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import action
 from django.db import transaction
 from django.utils import timezone
@@ -46,6 +48,35 @@ class BorrowingViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @extend_schema(
+        summary="Get list of borrowings",
+        description="Retrieve a list of borrowings. Non-admins see only their own borrowings.",
+        parameters=[
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.INT,
+                description="Filter borrowings by user ID (admin only)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="is_active",
+                type=OpenApiTypes.BOOL,
+                description="Filter active borrowings (True = not returned, False = returned)",
+                required=False,
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Return a borrowed book",
+        description="Set actual return date, increase book inventory by 1, and create a FINE payment if overdue.",
+        responses={
+            status.HTTP_200_OK: BorrowingReadSerializer,
+            status.HTTP_400_BAD_REQUEST: OpenApiTypes.OBJECT,
+        },
+    )
     @action(methods=["POST"], detail=True, url_path="return")
     def return_book(self, request, pk=None):
         borrowing = self.get_object()

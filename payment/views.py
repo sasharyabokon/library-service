@@ -1,7 +1,9 @@
 import stripe
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, mixins, status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -25,6 +27,22 @@ class PaymentViewSet(
             return queryset.all()
         return queryset.filter(borrowing__user=user)
 
+    @extend_schema(
+        summary="Handle successful Stripe payment",
+        description="Verify Stripe checkout session status using session_id and update payment status to PAID.",
+        parameters=[
+            OpenApiParameter(
+                name="session_id",
+                type=OpenApiTypes.STR,
+                description="Stripe Checkout session ID",
+                required=True,
+            ),
+        ],
+        responses={
+            status.HTTP_200_OK: OpenApiTypes.OBJECT,
+            status.HTTP_400_BAD_REQUEST: OpenApiTypes.OBJECT,
+        },
+    )
     @action(detail=False, methods=["get"], url_path="success")
     def success(self, request):
         session_id = request.query_params.get("session_id")
@@ -48,6 +66,11 @@ class PaymentViewSet(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    @extend_schema(
+        summary="Handle cancelled Stripe payment",
+        description="Returns a message indicating that payment was cancelled and the session remains active for 24 hours.",
+        responses={status.HTTP_200_OK: OpenApiTypes.OBJECT},
+    )
     @action(detail=False, methods=["get"], url_path="cancel")
     def cancel(self, request):
         return Response(
