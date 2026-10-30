@@ -29,18 +29,9 @@ class PaymentViewSet(
 
     @extend_schema(
         summary="Handle successful Stripe payment",
-        description="Verify Stripe checkout session status using session_id and update payment status to PAID.",
-        parameters=[
-            OpenApiParameter(
-                name="session_id",
-                type=OpenApiTypes.STR,
-                description="Stripe Checkout session ID",
-                required=True,
-            ),
-        ],
+        description="Endpoint user is redirected to after successful payment. Status is updated via webhook.",
         responses={
             status.HTTP_200_OK: OpenApiTypes.OBJECT,
-            status.HTTP_400_BAD_REQUEST: OpenApiTypes.OBJECT,
         },
     )
     @action(detail=False, methods=["get"], url_path="success")
@@ -50,20 +41,11 @@ class PaymentViewSet(
             return Response(
                 {"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        session = stripe.checkout.Session.retrieve(session_id)
-
-        payment = get_object_or_404(Payment, session_id=session_id)
-
-        if session.payment_status == "paid":
-            payment.status = Payment.StatusChoices.PAID
-            payment.save()
-            return Response(
-                {"message": "Payment was successful!"}, status=status.HTTP_200_OK
-            )
         return Response(
-            {"message": "Payment is not completed yet."},
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "message": "Payment successful! The status will be updated shortly via webhook."
+            },
+            status=status.HTTP_200_OK,
         )
 
     @extend_schema(

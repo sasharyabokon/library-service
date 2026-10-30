@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from book.serializers import BookSerializer
@@ -12,7 +13,7 @@ from payment.services import create_stripe_session
 class BorrowingReadSerializer(serializers.ModelSerializer):
     book = BookSerializer(read_only=True)
     user_email = serializers.ReadOnlyField(source="user.email")
-    payments = PaymentSerializer(many=True, read_only=True, source="payment_set")
+    payments = PaymentSerializer(many=True, read_only=True, source="payments")
 
     class Meta:
         model = Borrowing
@@ -37,6 +38,13 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
             "expected_return_date",
         )
         read_only_fields = ("id", "borrow_date")
+
+    def validate_expected_return_date(self, value):
+        if value <= timezone.now().date():
+            raise serializers.ValidationError(
+                "Expected return date must be in the future."
+            )
+        return value
 
     def validate(self, attrs):
         book = attrs.get("book")
@@ -77,13 +85,16 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
         except Exception as e:
             print(f"Stripe session creation failed: {e}")
 
-        message = (
-            f"📚 *New Borrowing Created!*\n\n"
-            f"• *Book:* {borrowing.book.title}\n"
-            f"• *User:* {borrowing.user.email}\n"
-            f"• *Borrow Date:* {borrowing.borrow_date}\n"
-            f"• *Expected Return Date:* {borrowing.expected_return_date}"
-        )
-        send_telegram_message(message)
+        try:
+            message = (
+                f"📚 *New Borrowing Created!*\n\n"
+                f"• *Book:* {borrowing.book.title}\n"
+                f"• *User:* {borrowing.user.email}\n"
+                f"• *Borrow Date:* {borrowing.borrow_date}\n"
+                f"• *Expected Return Date:* {borrowing.expected_return_date}"
+            )
+            send_telegram_message(message)
+        except Exception as e:
+            print(f"Telegram notification failed: {e}")
 
         return borrowing
