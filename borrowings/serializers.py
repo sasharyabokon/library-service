@@ -13,7 +13,7 @@ from payment.services import create_stripe_session
 class BorrowingReadSerializer(serializers.ModelSerializer):
     book = BookSerializer(read_only=True)
     user_email = serializers.ReadOnlyField(source="user.email")
-    payments = PaymentSerializer(many=True, read_only=True, source="payments")
+    payments = PaymentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Borrowing
