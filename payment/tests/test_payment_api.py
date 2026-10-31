@@ -1,14 +1,13 @@
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from book.models import Book
 from borrowings.models import Borrowing
-from django.contrib.auth import get_user_model
-from django.urls import reverse
 from payment.models import Payment
 from payment.serializers import PaymentSerializer
-from rest_framework import status
-from rest_framework.test import APITestCase
 
 
 class UnauthenticatedPaymentApiTests(APITestCase):
@@ -99,13 +98,8 @@ class AuthenticatedPaymentApiTests(APITestCase):
         serializer = PaymentSerializer(self.payment)
         self.assertEqual(res.data, serializer.data)
 
-    @patch("stripe.checkout.Session.retrieve")
-    def test_payment_success_action(self, mock_stripe_retrieve):
-        """Test success endpoint updates payment status to PAID when stripe reports paid"""
-        mock_session = MagicMock()
-        mock_session.payment_status = "paid"
-        mock_stripe_retrieve.return_value = mock_session
-
+    def test_payment_success_endpoint(self):
+        """Test success endpoint returns correct message"""
         self.client.force_authenticate(user=self.user)
         url = (
             reverse("payment:payment-success")
@@ -114,8 +108,7 @@ class AuthenticatedPaymentApiTests(APITestCase):
         res = self.client.get(url)
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.payment.refresh_from_db()
-        self.assertEqual(self.payment.status, Payment.StatusChoices.PAID)
+        self.assertIn("Payment successful", res.data["message"])
 
     def test_payment_cancel_action(self):
         """Test cancel endpoint returns correct message"""
@@ -125,3 +118,16 @@ class AuthenticatedPaymentApiTests(APITestCase):
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("Payment was cancelled", res.data["message"])
+
+    def test_stripe_webhook_updates_status(self):
+        """Test that Stripe webhook updates payment status to PAID"""
+        url = reverse("payment:stripe-webhook")
+        payload = {
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": self.payment.session_id}},
+        }
+        res = self.client.post(url, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, Payment.StatusChoices.PAID)

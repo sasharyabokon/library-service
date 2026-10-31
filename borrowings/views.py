@@ -1,20 +1,24 @@
+import logging
 from django.conf import settings
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from rest_framework.decorators import action
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import viewsets, status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from borrowings.models import Borrowing
 from borrowings.serializers import (
-    BorrowingReadSerializer,
     BorrowingCreateSerializer,
+    BorrowingReadSerializer,
 )
 from payment.models import Payment
 from payment.services import create_stripe_session
+
+logger = logging.getLogger(__name__)
 
 
 class BorrowingViewSet(viewsets.ModelViewSet):
@@ -38,8 +42,11 @@ class BorrowingViewSet(viewsets.ModelViewSet):
 
         is_active = self.request.query_params.get("is_active")
         if is_active is not None:
-            is_active_bool = is_active.lower() == "true"
-            if is_active_bool:
+            if is_active.lower() not in ["true", "false"]:
+                raise ValidationError(
+                    {"is_active": "This parameter must be 'true' or 'false'."}
+                )
+            if is_active.lower() == "true":
                 queryset = queryset.filter(actual_return_date__isnull=True)
             else:
                 queryset = queryset.filter(actual_return_date__isnull=False)
@@ -120,7 +127,7 @@ class BorrowingViewSet(viewsets.ModelViewSet):
             try:
                 create_stripe_session(payment, success_url, cancel_url)
             except Exception as e:
-                print(f"Stripe session creation for fine failed: {e}")
+                logger.error("Stripe session creation for fine failed: %s", e)
 
         serializer = BorrowingReadSerializer(borrowing, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)

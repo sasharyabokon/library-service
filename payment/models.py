@@ -13,7 +13,7 @@ class Payment(models.Model):
     status = models.CharField(
         max_length=10, choices=StatusChoices.choices, default=StatusChoices.PENDING
     )
-    type = models.CharField(max_length=10, choices=TypeChoices.choices)
+    type = models.CharField(max_length=10, choices=TypeChoices.choices)  # noqa: VNE003
     borrowing = models.ForeignKey(
         "borrowings.Borrowing", on_delete=models.CASCADE, related_name="payments"
     )

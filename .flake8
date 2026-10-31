@@ -1,0 +1,13 @@
+[flake8]
+exclude =
+    migrations,
+    venv,
+    .venv,
+    env,
+    .env,
+    staticfiles,
+    media
+max-line-length = 119
+inline-quotes = double
+multiline-quotes = double
+docstring-quotes = double

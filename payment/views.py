@@ -1,8 +1,9 @@
 import stripe
 from django.conf import settings
-from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
+from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -50,7 +51,10 @@ class PaymentViewSet(
 
     @extend_schema(
         summary="Handle cancelled Stripe payment",
-        description="Returns a message indicating that payment was cancelled and the session remains active for 24 hours.",
+        description=(
+            "Returns a message indicating that payment was cancelled "
+            "and the session remains active for 24 hours."
+        ),
         responses={status.HTTP_200_OK: OpenApiTypes.OBJECT},
     )
     @action(detail=False, methods=["get"], url_path="cancel")
@@ -65,3 +69,35 @@ class PaymentViewSet(
             },
             status=status.HTTP_200_OK,
         )
+
+
+class StripeWebhookView(APIView):
+    permission_classes = []
+
+    def post(self, request, *args, **kwargs):
+        payload = request.body
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+        endpoint_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
+
+        try:
+            if endpoint_secret:
+                event = stripe.Webhook.construct_event(
+                    payload, sig_header, endpoint_secret
+                )
+            else:
+                event = request.data
+        except (ValueError, stripe.error.SignatureVerificationError):
+            return HttpResponse(status=400)
+
+        if event.get("type") == "checkout.session.completed":
+            session = event["data"]["object"]
+            session_id = session.get("id")
+
+            try:
+                payment = Payment.objects.get(session_id=session_id)
+                payment.status = Payment.StatusChoices.PAID
+                payment.save()
+            except Payment.DoesNotExist:
+                return HttpResponse(status=404)
+
+        return HttpResponse(status=200)
