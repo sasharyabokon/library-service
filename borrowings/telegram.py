@@ -1,5 +1,8 @@
+import logging
 import os
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 def send_telegram_message(message):
@@ -7,7 +10,7 @@ def send_telegram_message(message):
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
-        print(
+        logger.error(
             "Error: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing from environment variables."
         )
         return
@@ -23,4 +26,4 @@ def send_telegram_message(message):
         response = requests.post(url, json=payload)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(f"Failed to send Telegram notification: {e}")
+        logger.exception("Failed to send Telegram notification: %s", e)

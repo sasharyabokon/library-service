@@ -1,3 +1,4 @@
+import logging
 import stripe
 from django.conf import settings
 from django.http import HttpResponse
@@ -11,6 +12,8 @@ from rest_framework.response import Response
 
 from payment.models import Payment
 from payment.serializers import PaymentSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentViewSet(
@@ -79,25 +82,50 @@ class StripeWebhookView(APIView):
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
         endpoint_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
 
+        if not endpoint_secret:
+            logger.error("STRIPE_WEBHOOK_SECRET is not configured in settings.")
+            return HttpResponse("Webhook secret is not configured", status=400)
+
         try:
-            if endpoint_secret:
-                event = stripe.Webhook.construct_event(
-                    payload, sig_header, endpoint_secret
-                )
-            else:
-                event = request.data
-        except (ValueError, stripe.error.SignatureVerificationError):
+            event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+        except ValueError as e:
+            logger.error("Invalid payload in Stripe webhook: %s", e)
+            return HttpResponse(status=400)
+        except stripe.error.SignatureVerificationError as e:
+            logger.error("Invalid signature in Stripe webhook: %s", e)
             return HttpResponse(status=400)
 
         if event.get("type") == "checkout.session.completed":
             session = event["data"]["object"]
             session_id = session.get("id")
+            payment_status = session.get("payment_status")
+
+            if payment_status != "paid":
+                logger.warning(
+                    "Checkout session %s completed but payment_status is %s",
+                    session_id,
+                    payment_status,
+                )
+                return HttpResponse(status=200)
 
             try:
                 payment = Payment.objects.get(session_id=session_id)
-                payment.status = Payment.StatusChoices.PAID
-                payment.save()
+                if payment.status != Payment.StatusChoices.PAID:
+                    payment.status = Payment.StatusChoices.PAID
+                    payment.save()
+                    logger.info(
+                        "Payment %s successfully marked as PAID via webhook.",
+                        payment.id,
+                    )
+                else:
+                    logger.info(
+                        "Payment %s was already marked as PAID (duplicate event).",
+                        payment.id,
+                    )
             except Payment.DoesNotExist:
+                logger.error(
+                    "Payment with session_id %s not found in database.", session_id
+                )
                 return HttpResponse(status=404)
 
         return HttpResponse(status=200)
