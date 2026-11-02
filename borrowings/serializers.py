@@ -1,3 +1,4 @@
+import logging
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -8,6 +9,8 @@ from borrowings.telegram import send_telegram_message
 from payment.models import Payment
 from payment.serializers import PaymentSerializer
 from payment.services import create_stripe_session
+
+logger = logging.getLogger(__name__)
 
 
 class BorrowingReadSerializer(serializers.ModelSerializer):
@@ -83,7 +86,11 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
         try:
             create_stripe_session(payment, success_url, cancel_url)
         except Exception as e:
-            print(f"Stripe session creation failed: {e}")
+            logger.exception("Stripe session creation failed: %s", e)
+            borrowing.delete()
+            raise serializers.ValidationError(
+                {"detail": f"Failed to create Stripe checkout session: {e}"}
+            )
 
         try:
             message = (
@@ -95,6 +102,6 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
             )
             send_telegram_message(message)
         except Exception as e:
-            print(f"Telegram notification failed: {e}")
+            logger.exception("Telegram notification failed: %s", e)
 
         return borrowing

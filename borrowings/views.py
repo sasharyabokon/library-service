@@ -113,7 +113,7 @@ class BorrowingViewSet(viewsets.ModelViewSet):
 
                 payment = Payment.objects.create(
                     borrowing=borrowing,
-                    type=Payment.TypeChoices.FINE,
+                    type=Payment.TypeChoices.PAYMENT,
                     money_to_pay=money_to_pay,
                 )
 
@@ -127,7 +127,20 @@ class BorrowingViewSet(viewsets.ModelViewSet):
             try:
                 create_stripe_session(payment, success_url, cancel_url)
             except Exception as e:
-                logger.error("Stripe session creation for fine failed: %s", e)
+                logger.exception("Stripe session creation for fine failed: %s", e)
+                with transaction.atomic():
+                    payment.delete()
+                    borrowing.actual_return_date = None
+                    borrowing.save()
+                    book = borrowing.book
+                    book.inventory -= 1
+                    book.save()
+                return Response(
+                    {
+                        "detail": f"Failed to create Stripe checkout session for fine: {e}"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         serializer = BorrowingReadSerializer(borrowing, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)

@@ -1,5 +1,7 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -119,14 +121,21 @@ class AuthenticatedPaymentApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("Payment was cancelled", res.data["message"])
 
-    def test_stripe_webhook_updates_status(self):
+    @override_settings(STRIPE_WEBHOOK_SECRET="whsec_test_dummy_secret")
+    @patch("stripe.Webhook.construct_event")
+    def test_stripe_webhook_updates_status(self, mock_construct_event):
         """Test that Stripe webhook updates payment status to PAID"""
-        url = reverse("payment:stripe-webhook")
-        payload = {
+        mock_construct_event.return_value = {
             "type": "checkout.session.completed",
-            "data": {"object": {"id": self.payment.session_id}},
+            "data": {
+                "object": {
+                    "id": self.payment.session_id,
+                    "payment_status": "paid",
+                }
+            },
         }
-        res = self.client.post(url, payload, format="json")
+        url = reverse("payment:stripe-webhook")
+        res = self.client.post(url, {}, format="json")
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.payment.refresh_from_db()
